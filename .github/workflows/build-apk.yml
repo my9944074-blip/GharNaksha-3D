@@ -11,33 +11,70 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Find and extract project ZIP
+      - name: Extract project ZIP
         run: |
-          mkdir build-src
+          mkdir project
           ZIP=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
-          echo "Using ZIP: $ZIP"
-          unzip -q "$ZIP" -d build-src
+          echo "ZIP = $ZIP"
+          unzip -q "$ZIP" -d project
 
-      - name: Set up Java
+      - name: Find project folder
+        run: |
+          echo "Project files:"
+          find project -name settings.gradle.kts -o -name build.gradle.kts
+
+      - name: Set Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle
+      - name: Set Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: Build Debug APK
-        working-directory: build-src
-        run: gradle assembleDebug --stacktrace
+      - name: Configure Android plugins
+        run: |
+          cd project
+          SETTINGS=$(find . -name settings.gradle.kts | head -n 1)
+          ROOT=$(dirname "$SETTINGS")
+          cd "$ROOT"
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path("settings.gradle.kts")
+          s = p.read_text()
+
+          if "pluginManagement" in s and "plugins {" not in s:
+              s = s.replace(
+                  "pluginManagement {",
+                  """pluginManagement {
+              plugins {
+                  id("com.android.application") version "8.7.3"
+                  id("org.jetbrains.kotlin.android") version "2.0.21"
+                  id("org.jetbrains.kotlin.plugin.compose") version "2.0.21"
+              }
+          """,
+                  1
+              )
+
+          p.write_text(s)
+          PY
+
+      - name: Build APK
+        run: |
+          cd project
+          ROOT=$(dirname "$(find . -name settings.gradle.kts | head -n 1)")
+          cd "$ROOT"
+          gradle assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: GharNaksha-3D-APK
-          path: build-src/app/build/outputs/apk/debug/*.apk
+          path: project/**/app/build/outputs/apk/debug/*.apk
